@@ -11,7 +11,7 @@ class Unit(ABC):
     def move(self, nx, ny):
         self.x = nx
         self.y = ny
-
+    
     def attacked(self, dmg):
         if self.hp == 0:
             return
