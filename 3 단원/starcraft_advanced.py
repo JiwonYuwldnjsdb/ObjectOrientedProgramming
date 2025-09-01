@@ -200,7 +200,7 @@ class Marine(GroundUnit, MechanicUnit):
         print(f"{self.name}: 가우스 소총 발사! ({self.gauss_dmg} 피해)")
     
     def update(self):
-        super().update( )
+        super().update()
 
 class Zergling(GroundUnit, CreatureUnit):
     def __init__(self, hp=100, x=0, y=0, name="Default Zergling"):
@@ -320,7 +320,7 @@ class Wraith(AerialUnit, MechanicUnit):
 
 class Game:
     def __init__(self, players, max_turns=12, seed=None,
-                 p_lockdown=0.35, p_cloak=0.25, p_uncloak=0.10, verbose=True):
+                p_lockdown=0.35, p_cloak=0.25, p_uncloak=0.10, verbose=True):
         """
         players: [team1_units, team2_units, ...]
         max_turns: 최대 턴 수
@@ -340,7 +340,6 @@ class Game:
         if seed is not None:
             random.seed(seed)
 
-        # 편의 구조
         self.all_units = [u for team in players for u in team]
         self.unit_team = {u: i for i, team in enumerate(players) for u in team}
 
