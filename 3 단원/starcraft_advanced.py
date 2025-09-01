@@ -1,10 +1,12 @@
 from abc import ABC, abstractmethod
 import random
+import time
 
 class EnergyPool:
-    def __init__(self, current=0, maximum=200):
+    def __init__(self, current=0, maximum=200, basic_amount = 0):
         self.current = current
         self.maximum = maximum
+        self.basic_amount = basic_amount
     
     def consume(self, amount):
         if amount <= 0:
@@ -26,6 +28,15 @@ class EnergyPool:
         
         return self.current - before
 
+    def update(self):
+        if self.basic_amount <= 0:
+            return 0
+        
+        before = self.current
+        self.current = min(self.maximum, self.current + self.basic_amount)
+        
+        return self.current - before
+
 class CloakModule:
     def __init__(self, owner, energy_pool, activation_cost=25, drain_per_turn=10, duration=3):
         self.owner = owner
@@ -37,10 +48,7 @@ class CloakModule:
         self.remaining = 0
 
     def cloak(self):
-        if hasattr(self.owner, "_islockdown") and not self.owner._islockdown():
-            return
-        
-        if self.owner.hp == 0:
+        if not self.owner.can_act():
             return
         
         if self.is_cloaked:
@@ -78,12 +86,12 @@ class CloakModule:
             self.uncloak("지속시간 종료")
 
 class RegenerationModule:
-    def __init__(self, owner, amount=3):
+    def __init__(self, owner, amount):
         self.owner = owner
         self.amount = amount
     
     def regenerate(self):
-        if self.owner.hp == 0:
+        if not self.owner.can_act():
             return
         
         before = self.owner.hp
@@ -104,11 +112,17 @@ class BaseUnit(ABC):
         self.y = y
         self.name = name
     
+    def is_alive(self):
+        return self.hp > 0
+    
     def move(self, nx, ny):
         self.x, self.y = nx, ny
     
+    def can_act(self):
+        return self.is_alive()
+    
     def attacked(self, dmg):
-        if self.hp == 0:
+        if not self.is_alive():
             return
         
         self.hp = max(self.hp - dmg, 0)
@@ -120,7 +134,6 @@ class BaseUnit(ABC):
     def attack(self, other):
         pass
     
-    @abstractmethod
     def update(self):
         pass
 
@@ -128,11 +141,17 @@ class GroundUnit(BaseUnit, ABC):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.ground_unit = True
+    
+    def update(self, **kwargs):
+        super().update()
 
 class AerialUnit(BaseUnit, ABC):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.air_unit = True
+    
+    def update(self, **kwargs):
+        super().update()
 
 class MechanicUnit(BaseUnit, ABC):
     def __init__(self, **kwargs):
@@ -142,11 +161,15 @@ class MechanicUnit(BaseUnit, ABC):
     
     def _islockdown(self):
         if self.islockdown:
-            print(f"{self.name}은(는) 락다운 상태라 행동할 수 없습니다. ({self.locktick}턴 남음)")
-            return False
-        return True
+            return True
+        return False
     
-    def update(self):
+    def can_act(self):
+        return super().can_act() and not self._islockdown()
+    
+    def update(self, **kwargs):
+        super().update()
+        
         if self.locktick > 0:
             self.locktick -= 1
             
@@ -158,8 +181,11 @@ class CreatureUnit(BaseUnit, ABC):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
     
-    def update(self):
-        pass
+    def can_act(self):
+        return super().can_act()
+    
+    def update(self, **kwargs):
+        super().update()
 
 class Marine(GroundUnit, MechanicUnit):
     def __init__(self, hp=100, x=0, y=0, name="Default Marine"):
@@ -167,27 +193,24 @@ class Marine(GroundUnit, MechanicUnit):
         self.gauss_dmg = 12
         
     def attack(self, other):
-        if not self._islockdown():
-            return
-        
-        if self.hp == 0:
+        if not super().can_act():
             return
         
         other.attacked(self.gauss_dmg)
         print(f"{self.name}: 가우스 소총 발사! ({self.gauss_dmg} 피해)")
     
     def update(self):
-        MechanicUnit.update(self)
+        super().update( )
 
 class Zergling(GroundUnit, CreatureUnit):
     def __init__(self, hp=100, x=0, y=0, name="Default Zergling"):
         super().__init__(hp=hp, x=x, y=y, name=name)
         self.claw_dmg = 10
         
-        self.regen = RegenerationModule(owner=self, amount=5)
+        self.regen = RegenerationModule(owner=self, amount=1)
     
     def attack(self, other):
-        if self.hp == 0:
+        if not super().can_act():
             return
         
         other.attacked(self.claw_dmg)
@@ -197,6 +220,7 @@ class Zergling(GroundUnit, CreatureUnit):
         self.regen.regenerate()
     
     def update(self):
+        super().update()
         self.regen.update()
 
 class Zealot(GroundUnit, MechanicUnit):
@@ -205,37 +229,32 @@ class Zealot(GroundUnit, MechanicUnit):
         self.psionic_blade_dmg = 20
         
     def attack(self, other):
-        if not self._islockdown():
-            return
-        
-        if self.hp == 0:
+        if not super().can_act():
             return
         
         other.attacked(self.psionic_blade_dmg)
         print(f"{self.name}: 사이오닉 검으로 공격! ({self.psionic_blade_dmg} 피해)")
+    
     def update(self):
-        
-        MechanicUnit.update(self)
+        super().update()
 
 class Ghost(GroundUnit, MechanicUnit):
     DEFAULT_ENERGY = 50
     MAX_ENERGY = 200
     THRESHOLD = 100
     LOCKDOWN_TICKS = 3
+    BASIC_AMOUNT = 25
     
     def __init__(self, hp=100, x=0, y=0, name="Default Ghost"):
         super().__init__(hp=hp, x=x, y=y, name=name)
         self.pistol_dmg = 8
         
-        self.energy = EnergyPool(current=Ghost.DEFAULT_ENERGY, maximum=Ghost.MAX_ENERGY)
+        self.energy = EnergyPool(current=Ghost.DEFAULT_ENERGY, maximum=Ghost.MAX_ENERGY, basic_amount=Ghost.BASIC_AMOUNT)
         self.cloaking = CloakModule(owner=self, energy_pool=self.energy,
                                     activation_cost=25, drain_per_turn=10, duration=3)
         
     def attack(self, other):
-        if not self._islockdown():
-            return
-        
-        if self.hp == 0:
+        if not super().can_act():
             return
         
         other.attacked(self.pistol_dmg)
@@ -264,27 +283,25 @@ class Ghost(GroundUnit, MechanicUnit):
         print(f"{self.name}: {other.name}에게 락다운 시전! ({Ghost.LOCKDOWN_TICKS}턴 지속)  남은 에너지 {self.energy.current}")
         
     def update(self):
-        MechanicUnit.update(self)
-        self.energy.regen(25)
+        super().update()
+        self.energy.update()
         self.cloaking.update()
 
 class Wraith(AerialUnit, MechanicUnit):
     DEFAULT_ENERGY = 60
     MAX_ENERGY = 200
+    BASIC_AMOUNT = 20
     
     def __init__(self, hp=120, x=0, y=0, name="Default Wraith"):
         super().__init__(hp=hp, x=x, y=y, name=name)
         self.laser_dmg = 14
         
-        self.energy = EnergyPool(current=Wraith.DEFAULT_ENERGY, maximum=Wraith.MAX_ENERGY)
+        self.energy = EnergyPool(current=Wraith.DEFAULT_ENERGY, maximum=Wraith.MAX_ENERGY, basic_amount=Wraith.BASIC_AMOUNT)
         self.cloaking = CloakModule(owner=self, energy_pool=self.energy,
                                     activation_cost=25, drain_per_turn=12, duration=3)
     
     def attack(self, other):
-        if not self._islockdown():
-            return
-        
-        if self.hp == 0:
+        if not super().can_act():
             return
         
         other.attacked(self.laser_dmg)
@@ -297,55 +314,152 @@ class Wraith(AerialUnit, MechanicUnit):
         self.cloaking.uncloak("수동 해제")
         
     def update(self):
-        MechanicUnit.update(self)
-        self.energy.regen(20)
+        super().update()
+        self.energy.update()
         self.cloaking.update()
+
+class Game:
+    def __init__(self, players, max_turns=12, seed=None,
+                 p_lockdown=0.35, p_cloak=0.25, p_uncloak=0.10, verbose=True):
+        """
+        players: [team1_units, team2_units, ...]
+        max_turns: 최대 턴 수
+        seed: 랜덤 시드 (재현용)
+        p_lockdown: 고스트가 락다운을 시도할 확률 (조건 충족 시)
+        p_cloak: 유닛이 은폐를 시도할 확률 (조건 충족 시)
+        p_uncloak: 은폐 중 해제를 시도할 확률
+        verbose: 출력 on/off
+        """
+        self.players = players
+        self.max_turns = max_turns
+        self.p_lockdown = p_lockdown
+        self.p_cloak = p_cloak
+        self.p_uncloak = p_uncloak
+        self.verbose = verbose
+
+        if seed is not None:
+            random.seed(seed)
+
+        # 편의 구조
+        self.all_units = [u for team in players for u in team]
+        self.unit_team = {u: i for i, team in enumerate(players) for u in team}
+
+    # ========== 헬퍼 ==========
+    def _alive_units(self):
+        return [u for u in self.all_units if u.is_alive()]
+
+    def _alive_enemies(self, unit):
+        tid = self.unit_team[unit]
+        return [e for e in self._alive_units() if self.unit_team[e] != tid]
+
+    def _print(self, msg):
+        if self.verbose:
+            print(msg)
+
+    # ========== 액션 결정 ==========
+    def _act(self, u):
+        if not u.can_act():
+            return
+        enemies = self._alive_enemies(u)
+        if not enemies:
+            return
+
+        # 고스트: 락다운/클로킹/공격
+        if isinstance(u, Ghost):
+            mech_targets = [e for e in enemies if isinstance(e, MechanicUnit)]
+            if (u.energy.current >= Ghost.THRESHOLD and mech_targets
+                    and random.random() < self.p_lockdown):
+                target = random.choice(mech_targets)
+                u.lockdown(target)
+                return
+
+            # 클로킹 토글 혹은 공격
+            if (not u.cloaking.is_cloaked
+                and u.energy.current >= u.cloaking.activation_cost
+                and random.random() < self.p_cloak):
+                u.cloak()
+            elif u.cloaking.is_cloaked and random.random() < self.p_uncloak:
+                u.uncloak()
+            else:
+                u.attack(random.choice(enemies))
+            return
+
+        # 레이스: 클로킹 토글/공격
+        if isinstance(u, Wraith):
+            if (not u.cloaking.is_cloaked
+                and u.energy.current >= u.cloaking.activation_cost
+                and random.random() < self.p_cloak):
+                u.cloak()
+            elif u.cloaking.is_cloaked and random.random() < self.p_uncloak:
+                u.uncloak()
+            else:
+                u.attack(random.choice(enemies))
+            return
+
+        # 그 외: 공격
+        u.attack(random.choice(enemies))
+
+    # ========== 한 턴 진행 ==========
+    def step(self, turn_index):
+        self._print(f"\n=== Turn {turn_index} ===")
+        acting = self._alive_units()
+        random.shuffle(acting)
+        for u in acting:
+            self._act(u)
+
+        # 턴 종료 업데이트
+        for u in self.all_units:
+            u.update()
+
+    # ========== 종료/승패 판정 ==========
+    def _alive_team_ids(self):
+        return {self.unit_team[u] for u in self.all_units if u.is_alive()}
+
+    def is_over(self):
+        alive = self._alive_team_ids()
+        return len(alive) <= 1
+
+    def winner(self):
+        alive = self._alive_team_ids()
+        if len(alive) == 1:
+            return next(iter(alive))  # team index
+        return None  # 무승부 또는 아직 진행 중
+
+    # ========== 전체 실행 ==========
+    def run(self):
+        for t in range(1, self.max_turns + 1):
+            if self.is_over():
+                break
+            self.step(t)
+
+        if self.is_over():
+            w = self.winner()
+            if w is None:
+                self._print("\n== 전원 전멸. 무승부 ==")
+            else:
+                self._print(f"\n== Team {w+1} 승리! ==")
+        else:
+            self._print("\n== 턴 제한으로 종료 ==")
 
 if __name__ == "__main__":
     player1 = [Marine(100, 0, 0, "Marine1"),
                Marine(100, 1, 1, "Marine2"),
-               Ghost(100, 2, 2, "Ghost1")]
+               Marine(100, 2, 2, "Marine3"),
+               Ghost(100, 3, 3, "Ghost1")]
 
     player2 = [Zergling(100, 0, 5, "Zergling1"),
                Zergling(100, 1, 6, "Zergling2"),
                Zergling(100, 2, 7, "Zergling3")]
 
-    player3 = [Zealot(100, 0, 10, "Zealot1")]
-    player4 = [Wraith(120, 5, 5, "Wraith1")]  # 신규 공중 유닛(클로킹 포함)
+    player3 = [Zealot(100, 0, 10, "Zealot1"),
+               Zealot(100, 0, 20, "Zealot2")]
+    
+    player4 = [Wraith(120, 5, 5, "Wraith1"),
+               Wraith(120, 7, 7, "Wraith2")]
 
     players = [player1, player2, player3, player4]
 
-    print("\n=== Turn 1: 교전 시작 ===")
-    player1[0].attack(player2[0])   # Marine1 -> Zergling1
-    player2[0].attack(player1[0])   # Zergling1 -> Marine1
-    player1[1].attack(player2[1])   # Marine2 -> Zergling2
-    player2[1].attack(player1[1])   # Zergling2 -> Marine2
-    player3[0].attack(player1[0])   # Zealot1 -> Marine1
+    game = Game(players, max_turns=50, seed=time.time(),
+                p_lockdown=0.35, p_cloak=0.25, p_uncloak=0.10, verbose=True)
 
-    # 락다운(에너지 100 필요, 고스트 기본 50이므로 실패 메시지 확인용)
-    player1[2].lockdown(player3[0])
-
-    # 클로킹 시연 (고스트/레이스)
-    player1[2].cloak()
-    player4[0].cloak()
-
-    # 저글링 자가 회복 시연: 먼저 피해를 입힌 후 regenerate() 직접 호출
-    player2[0].attacked(30)
-    player2[0].regenerate()  # 명시적 회복
-
-    # 1턴 업데이트(락다운 카운트, 에너지 회복, 클로킹 지속/소모, 저그 자동 회복)
-    for team in players:
-        for unit in team:
-            unit.update()
-
-    # 몇 턴 더 진행하여 클로킹 자동 해제/저그 자동 회복을 확인
-    for t in range(2, 6):
-        print(f"\n=== Turn {t} ===")
-        player3[0].attack(player1[0])
-        player1[0].attack(player2[random.randrange(0, len(player2))])
-        player2[2].attack(player1[random.randrange(0, len(player1))])
-        player1[2].attack(player2[random.randrange(0, len(player2))])
-        player4[0].attack(player2[0])
-        for team in players:
-            for unit in team:
-                unit.update()
+    game.run()
