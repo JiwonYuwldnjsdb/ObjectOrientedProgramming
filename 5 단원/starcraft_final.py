@@ -130,7 +130,7 @@ class StimpackStrategy(AttackStrategy):
 # --------------------------------------------------------------------
 # 미션 3: 유닛 강화 시스템 (데코레이터 패턴)
 # --------------------------------------------------------------------
-class UnitDecorator(ABC):
+class UnitDecorator:
     """Unit과 동일 인터페이스를 따르며, 다른 Unit을 감싼다."""
     def __init__(self, unit):
         self.wrapped_unit = unit
@@ -214,7 +214,7 @@ class DamageUpgradeDecorator(UnitDecorator):
         return self.wrapped_unit.power + self._bonus
 
 # --- Part 1: 모든 유닛의 청사진 (Subject: 옵저버 패턴 포인트 포함) ---
-class Unit(ABC):
+class Unit():
     def __init__(self, name, hp, power, attack_strategy: AttackStrategy = None):
         self.name = name
         self.max_hp = hp
